@@ -1,0 +1,25 @@
+Metadata-Version: 2.4
+Name: active-siam-mae
+Version: 0.1.0
+Summary: Unsupervised Active Visual Exploration using SiamMAE and Generalized Velocity
+Author-email: Tomás Couso Coddou <tomascousocoddou@gmail.com>
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: numpy
+Requires-Dist: matplotlib
+Requires-Dist: scipy
+Requires-Dist: torch>=2.0.0
+Requires-Dist: torchvision
+Requires-Dist: pyrender
+Requires-Dist: trimesh
+Requires-Dist: pyglet<2
+Requires-Dist: tqdm
+Requires-Dist: pillow
+Requires-Dist: timm
+Requires-Dist: networkx
+Provides-Extra: dev
+Requires-Dist: black; extra == "dev"
+Requires-Dist: isort; extra == "dev"
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: jupyter; extra == "dev"

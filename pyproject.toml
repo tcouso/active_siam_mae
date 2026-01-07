@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "active-siam-mae"
+version = "0.1.0"
+description = "Unsupervised Active Visual Exploration using SiamMAE and Generalized Velocity"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+  {name = "Tomás Couso Coddou", email = "tomascousocoddou@gmail.com"}
+]
+
+dependencies = [
+    "numpy",
+    "matplotlib",
+    "scipy",
+    "torch>=2.0.0",
+    "torchvision",
+    "pyrender",
+    "trimesh",
+    "pyglet<2",
+    "tqdm",
+    "pillow",
+    "timm",        
+    "networkx"
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "isort",
+    "pytest",
+    "jupyter"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py310']
+
+[tool.isort]
+profile = "black"

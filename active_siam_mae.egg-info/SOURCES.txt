@@ -1,0 +1,9 @@
+pyproject.toml
+active_siam_mae.egg-info/PKG-INFO
+active_siam_mae.egg-info/SOURCES.txt
+active_siam_mae.egg-info/dependency_links.txt
+active_siam_mae.egg-info/requires.txt
+active_siam_mae.egg-info/top_level.txt
+src/__init__.py
+src/dataset.py
+src/generate_poly_dataset.py
