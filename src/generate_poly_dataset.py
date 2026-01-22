@@ -4,7 +4,7 @@ import random as rd
 import argparse
 import os
 import math
-from typing import Tuple, Iterator
+from typing import Tuple, List
 
 MIN_R = 2.0
 MAX_R = 6.0
@@ -23,10 +23,40 @@ SHAPE_NAMES = list(SHAPE_REGISTRY.keys())
 def get_mesh(kind: str) -> pv.PolyData:
     return pv.PlatonicSolid(kind, radius=0.4, center=(0, 0, 0))
 
-
 def closed_loop_trajectory(
     length: int, initial_state: Tuple[float, float, float]
-) -> Iterator[Tuple[float, float, float]]:
+) -> List[Tuple[float, float, float]]:
+    
+    velocities = []
+    
+    sd_0, sy_0, sx_0 = initial_state
+    sd_i, sy_i, sx_i = initial_state
+    vd_i, vy_i, vx_i = 0.0, 0.0, 0.0
+    
+    if length % 2 != 0:
+        length += 1
+
+    for i in range(length):
+        if i == length - 1:
+            vd_i = -(sd_i - sd_0)
+            vy_i = -(sy_i - sy_0)
+            vx_i = -(sx_i - sx_0)
+        else:
+            vd_i = rd.uniform(-1 - sd_i, 1 - sd_i)
+            vx_i = rd.uniform(-1, 1)
+            vy_i = rd.uniform(-1, 1)
+            
+            sd_i += vd_i
+            sx_i += vx_i
+            sy_i += vy_i
+
+        velocities.append((vd_i, vy_i, vx_i))
+
+    return velocities
+
+def repeated_vel_closed_loop_trajectory(
+    length: int, initial_state: Tuple[float, float, float]
+) -> List[Tuple[float, float, float]]:
     velocities = []
     
     sd_0, sy_0, sx_0 = initial_state
@@ -53,9 +83,7 @@ def closed_loop_trajectory(
 
         velocities.append((vd_i, vy_i, vx_i))
 
-    for vel in velocities:
-        yield vel
-
+    return velocities
 
 def apply_action_and_get_image(
     plotter: pv.Plotter,
@@ -81,7 +109,7 @@ def apply_action_and_get_image(
     actor.orientation = [rx_final, ry_final, 0]
 
     plotter.render()
-    img = plotter.screenshot(transparent_background=True, return_img=True)
+    img = plotter.screenshot(transparent_background=False, return_img=True)
 
     return img, (d_final, ry_final, rx_final)
 
@@ -93,13 +121,14 @@ def generate_raw_dataset(
     trajectory_length: int,
     resolution: int,
     shape_arg: str,
-    monochromatic: bool = False
+    monochromatic: bool = False,
+    repeated_vel: bool = True,
 ):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
     pl = pv.Plotter(window_size=[resolution, resolution], off_screen=True)
-    pl.set_background("black")
+    pl.set_background("white")
     pl.hide_axes()
 
     total_shards = math.ceil(num_trajectories / shard_size)
@@ -157,8 +186,11 @@ def generate_raw_dataset(
             traj_imgs.append(img)
             traj_states.append(state)
             
-            velocities = list(closed_loop_trajectory(trajectory_length, state))
-            
+            if repeated_vel:
+                velocities = repeated_vel_closed_loop_trajectory(trajectory_length, state)
+            else:
+                velocities = closed_loop_trajectory(trajectory_length, state)
+
             for vel in velocities:
                 img, state = apply_action_and_get_image(pl, actor, state, vel)
                 traj_imgs.append(img)
@@ -194,10 +226,11 @@ if __name__ == "__main__":
     parser.add_argument("--num_trajs", type=int, default=100)
     parser.add_argument("--shard_size", type=int, default=50)
     parser.add_argument("--length", type=int, default=20)
-    parser.add_argument("--resolution", type=int, default=256)
-    parser.add_argument("--output_dir", type=str, default="./raw_data")
+    parser.add_argument("--resolution", type=int, default=224)
+    parser.add_argument("--output_dir", type=str, default="./data/medium_data")
     parser.add_argument("--monochromatic", action="store_true")
-    parser.add_argument("--shape", type=str, default="dodecahedron", choices=SHAPE_NAMES + ['mixed'])
+    parser.add_argument("--shape", type=str, default="icosahedron", choices=SHAPE_NAMES + ['mixed'])
+    parser.add_argument("--repeated_vel", type=bool, default=False)
 
     args = parser.parse_args()
 
@@ -208,5 +241,6 @@ if __name__ == "__main__":
         args.length, 
         args.resolution,
         args.shape,
-        args.monochromatic
+        args.monochromatic,
+        args.repeated_vel,
     )

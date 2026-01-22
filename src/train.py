@@ -14,7 +14,6 @@ def main(args):
     full_dataset = read_platonic_solids_dataset(args.data_dir)
     dm = PlatonicDataModule(full_dataset, batch_size=args.batch_size)
 
-    # Placeholder architecture - ensure input dim matches your data resolution (e.g., 64x64)
     backbone = nn.Sequential(
         nn.Flatten(),
         nn.Linear(256*256*3, 512),
