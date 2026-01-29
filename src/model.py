@@ -6,6 +6,7 @@ from typing import Tuple
 
 from src.dataset import read_platonic_solids_dataset
 
+
 num_channels = 3
 patch_size = 16
 grid_side_length = 14
@@ -13,7 +14,7 @@ hidden_dim = 512
 img_size = 224
 num_attn_heads = 8
 num_layers = 4
-
+seq_length = grid_side_length * grid_side_length
 
 def generate_pos_embeddings(hidden_dim: int, grid_side_length: int) -> torch.Tensor:
     grid_arange = torch.arange(grid_side_length)
@@ -29,7 +30,7 @@ def generate_pos_embeddings(hidden_dim: int, grid_side_length: int) -> torch.Ten
     grid_y_pos_embeddings = torch.concat((sin_grid_y, cos_grid_y), dim=-1)
 
     pos_embeddings = torch.concat((grid_x_pos_embeddings, grid_y_pos_embeddings), dim=-1)
-    pos_embeddings = pos_embeddings.view(grid_side_length * grid_side_length, -1).unsqueeze(0)
+    pos_embeddings = pos_embeddings.view(seq_length, -1).unsqueeze(0)
 
     return pos_embeddings
 
@@ -68,18 +69,21 @@ class ActiveSiamMAEMultiHeadAttention(nn.Module):
 
 
     def forward(self, query_embedding: torch.Tensor, key_value_embedding: torch.Tensor) -> torch.Tensor:
+
+        seq_length = query_embedding.shape[1]
+
         query = self.query_layer(query_embedding)
         key = self.key_layer(key_value_embedding)
         value = self.value_layer(key_value_embedding)
 
         # Reshape for multi-headed attention
-        key = key.view(-1, grid_side_length * grid_side_length, num_attn_heads, self.head_dimension)
-        key = key.permute(0, 2, 1, 3)
-
-        query = query.view(-1, grid_side_length * grid_side_length, num_attn_heads, self.head_dimension)
+        query = query.view(-1, seq_length, num_attn_heads, self.head_dimension)
         query = query.permute(0, 2, 1, 3)
 
-        value = value.view(-1, grid_side_length * grid_side_length, num_attn_heads, self.head_dimension)
+        key = key.view(-1, seq_length, num_attn_heads, self.head_dimension)
+        key = key.permute(0, 2, 1, 3)
+
+        value = value.view(-1, seq_length, num_attn_heads, self.head_dimension)
         value = value.permute(0, 2, 1, 3)
 
         simmilarity_scores = torch.matmul(query, torch.transpose(key, 2, 3))
@@ -90,7 +94,7 @@ class ActiveSiamMAEMultiHeadAttention(nn.Module):
 
         # Restore batch, seq length, embedding shape
         attn = attn.permute(0, 2, 1, 3)
-        attn = attn.reshape(-1, grid_side_length * grid_side_length, hidden_dim)
+        attn = attn.reshape(-1, seq_length, hidden_dim)
 
         return attn
 
@@ -141,9 +145,10 @@ class ActiveSiamMAEDecoderBlock(nn.Module):
 
 
 class ActiveSiamMAEEncoder(nn.Module):
-    def __init__(self, num_layers: int):
+    def __init__(self, num_layers: int, masking_ratio: float = 0.75):
         super(ActiveSiamMAEEncoder, self).__init__()
         self.num_layers = num_layers
+        self.masking_ratio = masking_ratio
         pos_embeddings = generate_pos_embeddings(hidden_dim=hidden_dim, grid_side_length=grid_side_length)
         self.register_buffer('pos_embeddings', pos_embeddings)
         self.layer_norm = nn.LayerNorm(hidden_dim)
@@ -153,27 +158,47 @@ class ActiveSiamMAEEncoder(nn.Module):
         ])
 
 
-    def forward(self, past_frame: torch.Tensor, future_frame: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        frames = [past_frame, future_frame]
-        enc_embeddings = []
+    def forward(self, past_frame: torch.Tensor, future_frame: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
-        for frame in frames:
-            embeddings = self.patch_embed_layer(frame)
-            embeddings += self.pos_embeddings
+        # Past frame is given complete
+        past_embeddings = self.patch_embed_layer(past_frame)
+        past_embeddings += self.pos_embeddings
 
-            for attn_block in self.attn_blocks:
-                embeddings = attn_block(embeddings)
+        for attn_block in self.attn_blocks:
+            past_embeddings = attn_block(past_embeddings)
 
-            embeddings = self.layer_norm(embeddings)
-            enc_embeddings.append(embeddings)
+        past_embeddings = self.layer_norm(past_embeddings)
 
-        return tuple(enc_embeddings)
+        # Future frame is masked
+        future_embeddings = self.patch_embed_layer(future_frame)
+        future_embeddings += self.pos_embeddings
+
+        batch_size = past_frame.shape[0]
+        rand_tensor = torch.rand(batch_size, seq_length)
+        _, ids_shuffle = rand_tensor.sort(dim=1)
+        ids_restore = torch.argsort(ids_shuffle, dim=1)
+        ids_shuffle_expanded = ids_shuffle.unsqueeze(-1).expand(-1, -1, hidden_dim)
+        future_embeddings = torch.gather(future_embeddings, dim=1, index=ids_shuffle_expanded)
+
+        num_masked_embeddings = int(seq_length * (1 - self.masking_ratio))
+        future_embeddings = future_embeddings[:, :num_masked_embeddings]
+
+        for attn_block in self.attn_blocks:
+            future_embeddings = attn_block(future_embeddings)
+
+        future_embeddings = self.layer_norm(future_embeddings)
+
+        return past_embeddings, future_embeddings, ids_restore
+
     
 
 class ActiveSiamMAEDecoder(nn.Module):
     def __init__(self, num_layers: int):
         super(ActiveSiamMAEDecoder, self).__init__()
         self.num_layers = num_layers
+        pos_embeddings = generate_pos_embeddings(hidden_dim=hidden_dim, grid_side_length=grid_side_length)
+        self.register_buffer('pos_embeddings', pos_embeddings)
+        self.mask_token = nn.Parameter(torch.zeros(1, 1, hidden_dim))
         self.layer_norm = nn.LayerNorm(hidden_dim)
         self.output_layer= nn.Linear(hidden_dim, num_channels * patch_size * patch_size)
         self.unpatchify_layer = ActiveSiamMAEDepatchifier()
@@ -182,7 +207,16 @@ class ActiveSiamMAEDecoder(nn.Module):
         ])
 
 
-    def forward(self, past_embeddings: torch.Tensor, future_embeddings: torch.Tensor) -> torch.Tensor:
+    def forward(self, past_embeddings: torch.Tensor, future_embeddings: torch.Tensor, ids_restore: torch.Tensor) -> torch.Tensor:
+        batch_size = future_embeddings.shape[0]
+        masked_seq_length = future_embeddings.shape[1]
+
+        mask_embeddings = self.mask_token.repeat(batch_size, seq_length - masked_seq_length, 1)
+        future_embeddings = torch.concat((future_embeddings, mask_embeddings), dim=1)
+        ids_restore_expanded = ids_restore.unsqueeze(-1).expand(-1, -1, hidden_dim)
+        future_embeddings = torch.gather(future_embeddings, dim=1, index=ids_restore_expanded)
+        future_embeddings += self.pos_embeddings
+
         for attn_block in self.attn_blocks:
             future_embeddings = attn_block(past_embeddings, future_embeddings)
 
@@ -192,9 +226,8 @@ class ActiveSiamMAEDecoder(nn.Module):
 
         return patches
 
-
-if __name__ == '_main__':
-
+if __name__ == '__main__':
+    print("Test run")
     dataset = read_platonic_solids_dataset("../data/medium_data/")
 
     train_loader = DataLoader(
@@ -205,13 +238,14 @@ if __name__ == '_main__':
 
     batch = next(iter(train_loader))
 
-    patch_embed = ActiveSiamMAEPatchifier()
-    encoder = ActiveSiamMAEEncoder(1)
-    decoder = ActiveSiamMAEDecoder(1)
+    encoder = ActiveSiamMAEEncoder(8)
+    decoder = ActiveSiamMAEDecoder(8)
 
-    past_frame = batch['images'][:, 0, :, :].permute(0, 3, 1, 2).float()
-    future_frame = batch['images'][:, 1, :, :].permute(0, 3, 1, 2).float()
+    past_frame = batch['images'][:, 0, :, :, :].permute(0, 3, 1, 2).float()
+    future_frame = batch['images'][:, 1, :, :, :].permute(0, 3, 1, 2).float()
 
-    past_embeddings, future_embeddings = encoder(past_frame, future_frame)
-    out = decoder(past_embeddings, future_embeddings)
+    past_embeddings, future_embeddings, ids_restore = encoder(past_frame, future_frame)
+    patches = decoder(past_embeddings, future_embeddings, ids_restore)
+
+    print(patches.shape)
     
