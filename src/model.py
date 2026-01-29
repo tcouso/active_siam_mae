@@ -3,20 +3,40 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from typing import Tuple
+from dataclasses import dataclass
 
 from src.dataset import read_platonic_solids_dataset
 
 
-num_channels = 3
-patch_size = 16
-grid_side_length = 14
-hidden_dim = 512
-img_size = 224
-num_attn_heads = 8
-num_layers = 4
-seq_length = grid_side_length * grid_side_length
+@dataclass
+class ActSiamMAEConfig:
+    # Model Hyperparameters
+    num_channels: int = 3
+    patch_size: int = 16
+    grid_side_length: int = 14
+    hidden_dim: int = 512
+    img_size: int= 224
+    num_attn_heads: int= 8
+    seq_length: int = grid_side_length * grid_side_length
+    head_dimension: int = hidden_dim // num_attn_heads
+    masking_ratio: float = 0.75
+    encoder_num_layers: int = 4
+    decoder_num_layers: int = 4
 
-def generate_pos_embeddings(hidden_dim: int, grid_side_length: int) -> torch.Tensor:
+    # Training Hyperparameters
+    batch_size: int = 64
+    learning_rate: float = 1.5e-4
+    weight_decay: float = 0.05
+    max_epochs: int = 800
+    warmup_epochs: int = 40
+    
+    # Lightning Trainer Params
+    accelerator: str = "gpu"
+    devices: int = -1
+    strategy: str = "ddp"
+
+
+def generate_pos_embeddings(hidden_dim: int, grid_side_length: int, seq_length: int) -> torch.Tensor:
     grid_arange = torch.arange(grid_side_length)
     grid_x, grid_y = torch.meshgrid(grid_arange, grid_arange, indexing='xy')
 
@@ -35,10 +55,15 @@ def generate_pos_embeddings(hidden_dim: int, grid_side_length: int) -> torch.Ten
     return pos_embeddings
 
 
+# TODO: Refactor this so it only patchifies, we should handle the embed logic elsewhere in order to use these classes as utils
 class ActiveSiamMAEPatchifier(nn.Module):
-    def __init__(self):
+    def __init__(self, config: ActSiamMAEConfig):
         super(ActiveSiamMAEPatchifier, self).__init__()
-        self.patch_embed_layer = nn.Conv2d(in_channels=num_channels, out_channels=hidden_dim, kernel_size=patch_size, stride=patch_size)
+        self.config = config
+        self.patch_embed_layer = nn.Conv2d(in_channels=config.num_channels, 
+                                           out_channels=config.hidden_dim, 
+                                           kernel_size=config.patch_size, 
+                                           stride=config.patch_size)
 
     def forward(self, frame: torch.Tensor) -> torch.Tensor:
         embeddings = self.patch_embed_layer(frame)
@@ -48,24 +73,38 @@ class ActiveSiamMAEPatchifier(nn.Module):
 
 
 class ActiveSiamMAEDepatchifier(nn.Module):
-    def __init__(self):
+    def __init__(self, config: ActSiamMAEConfig):
         super(ActiveSiamMAEDepatchifier, self).__init__()
+        self.config = config
+        self.grid_side_length = config.grid_side_length
+        self.num_channels = config.num_channels
+        self.patch_size = config.patch_size
+        self.hidden_dim = config.hidden_dim
+        self.img_size = config.img_size
 
     def forward(self, embeddings: torch.Tensor) -> torch.Tensor:
 
-        patches = embeddings.view(-1, grid_side_length, grid_side_length, num_channels, patch_size, patch_size).permute(0, 3, 1, 4, 2, 5)
-        img = patches.reshape(-1, num_channels, img_size, img_size)
+        patches = embeddings.view(-1, self.grid_side_length, self.grid_side_length, self.num_channels, self.patch_size, self.patch_size).permute(0, 3, 1, 4, 2, 5)
+        img = patches.reshape(-1, self.num_channels, self.img_size, self.img_size)
 
         return img
 
 
 class ActiveSiamMAEMultiHeadAttention(nn.Module):
-    def __init__(self):
+    def __init__(self, config: ActSiamMAEConfig):
         super(ActiveSiamMAEMultiHeadAttention, self).__init__()
-        self.key_layer = nn.Linear(hidden_dim, hidden_dim)
-        self.query_layer = nn.Linear(hidden_dim, hidden_dim)
-        self.value_layer = nn.Linear(hidden_dim, hidden_dim)
-        self.head_dimension = hidden_dim // num_attn_heads
+        self.config = config
+        self.num_attn_heads = config.num_attn_heads
+        self.hidden_dim = config.hidden_dim
+        self.seq_length = config.seq_length
+        self.patch_size = config.patch_size
+        self.grid_side_length = config.grid_side_length
+        self.num_channels = config.num_channels
+        self.head_dimension = config.head_dimension
+
+        self.key_layer = nn.Linear(config.hidden_dim, config.hidden_dim)
+        self.query_layer = nn.Linear(config.hidden_dim, config.hidden_dim)
+        self.value_layer = nn.Linear(config.hidden_dim, config.hidden_dim)
 
 
     def forward(self, query_embedding: torch.Tensor, key_value_embedding: torch.Tensor) -> torch.Tensor:
@@ -77,13 +116,13 @@ class ActiveSiamMAEMultiHeadAttention(nn.Module):
         value = self.value_layer(key_value_embedding)
 
         # Reshape for multi-headed attention
-        query = query.view(-1, seq_length, num_attn_heads, self.head_dimension)
+        query = query.view(-1, seq_length, self.num_attn_heads, self.head_dimension)
         query = query.permute(0, 2, 1, 3)
 
-        key = key.view(-1, seq_length, num_attn_heads, self.head_dimension)
+        key = key.view(-1, seq_length, self.num_attn_heads, self.head_dimension)
         key = key.permute(0, 2, 1, 3)
 
-        value = value.view(-1, seq_length, num_attn_heads, self.head_dimension)
+        value = value.view(-1, seq_length, self.num_attn_heads, self.head_dimension)
         value = value.permute(0, 2, 1, 3)
 
         simmilarity_scores = torch.matmul(query, torch.transpose(key, 2, 3))
@@ -94,22 +133,22 @@ class ActiveSiamMAEMultiHeadAttention(nn.Module):
 
         # Restore batch, seq length, embedding shape
         attn = attn.permute(0, 2, 1, 3)
-        attn = attn.reshape(-1, seq_length, hidden_dim)
+        attn = attn.reshape(-1, seq_length, self.hidden_dim)
 
         return attn
 
 
 class ActiveSiamMAEEncoderBlock(nn.Module):
-    def __init__(self):
+    def __init__(self, config: ActSiamMAEConfig):
         super(ActiveSiamMAEEncoderBlock, self).__init__()
-        self.num_attn_heads = num_attn_heads
-        self.layer_norm1 = nn.LayerNorm(hidden_dim)
-        self.layer_norm2 = nn.LayerNorm(hidden_dim)
-        self.multi_head_attn = ActiveSiamMAEMultiHeadAttention()
+        self.config = config
+        self.layer_norm1 = nn.LayerNorm(config.hidden_dim)
+        self.layer_norm2 = nn.LayerNorm(config.hidden_dim)
+        self.multi_head_attn = ActiveSiamMAEMultiHeadAttention(config)
         self.mlp = nn.Sequential(
-            nn.Linear(hidden_dim, 4 * hidden_dim),
+            nn.Linear(config.hidden_dim, 4 * config.hidden_dim),
             nn.GELU(),
-            nn.Linear(4 * hidden_dim, hidden_dim),
+            nn.Linear(4 * config.hidden_dim, config.hidden_dim),
         )
         
     def forward(self, embeddings: torch.Tensor) -> torch.Tensor:
@@ -121,18 +160,19 @@ class ActiveSiamMAEEncoderBlock(nn.Module):
 
 
 class ActiveSiamMAEDecoderBlock(nn.Module):
-    def __init__(self):
+    def __init__(self, config: ActSiamMAEConfig):
         super(ActiveSiamMAEDecoderBlock, self).__init__()
-        self.num_attn_heads = num_attn_heads
-        self.layer_norm1 = nn.LayerNorm(hidden_dim)
-        self.layer_norm2 = nn.LayerNorm(hidden_dim)
-        self.layer_norm3 = nn.LayerNorm(hidden_dim)
-        self.multi_head_self_attn = ActiveSiamMAEMultiHeadAttention()
-        self.multi_head_cross_attn = ActiveSiamMAEMultiHeadAttention()
+        self.config = config
+        self.num_attn_heads = config.num_attn_heads
+        self.layer_norm1 = nn.LayerNorm(config.hidden_dim)
+        self.layer_norm2 = nn.LayerNorm(config.hidden_dim)
+        self.layer_norm3 = nn.LayerNorm(config.hidden_dim)
+        self.multi_head_self_attn = ActiveSiamMAEMultiHeadAttention(config)
+        self.multi_head_cross_attn = ActiveSiamMAEMultiHeadAttention(config)
         self.mlp = nn.Sequential(
-            nn.Linear(hidden_dim, 4 * hidden_dim),
+            nn.Linear(config.hidden_dim, 4 * config.hidden_dim),
             nn.GELU(),
-            nn.Linear(4 * hidden_dim, hidden_dim),
+            nn.Linear(4 * config.hidden_dim, config.hidden_dim),
         )
         
     def forward(self, past_embeddings: torch.Tensor, future_embeddings: torch.Tensor) -> torch.Tensor:
@@ -145,16 +185,20 @@ class ActiveSiamMAEDecoderBlock(nn.Module):
 
 
 class ActiveSiamMAEEncoder(nn.Module):
-    def __init__(self, num_layers: int, masking_ratio: float = 0.75):
+    def __init__(self, config: ActSiamMAEConfig):
         super(ActiveSiamMAEEncoder, self).__init__()
-        self.num_layers = num_layers
-        self.masking_ratio = masking_ratio
-        pos_embeddings = generate_pos_embeddings(hidden_dim=hidden_dim, grid_side_length=grid_side_length)
+        self.config = config
+        self.seq_length = config.seq_length
+        self.hidden_dim = config.hidden_dim
+        self.masking_ratio = config.masking_ratio
+        pos_embeddings = generate_pos_embeddings(hidden_dim=config.hidden_dim, 
+                                                 grid_side_length=config.grid_side_length, 
+                                                 seq_length=config.seq_length)
         self.register_buffer('pos_embeddings', pos_embeddings)
-        self.layer_norm = nn.LayerNorm(hidden_dim)
-        self.patch_embed_layer = ActiveSiamMAEPatchifier()
+        self.layer_norm = nn.LayerNorm(config.hidden_dim)
+        self.patch_embed_layer = ActiveSiamMAEPatchifier(config)
         self.attn_blocks = nn.ModuleList([
-            ActiveSiamMAEEncoderBlock() for _ in range(self.num_layers)
+            ActiveSiamMAEEncoderBlock(config) for _ in range(config.encoder_num_layers)
         ])
 
 
@@ -174,13 +218,13 @@ class ActiveSiamMAEEncoder(nn.Module):
         future_embeddings += self.pos_embeddings
 
         batch_size = past_frame.shape[0]
-        rand_tensor = torch.rand(batch_size, seq_length)
+        rand_tensor = torch.rand(batch_size, self.seq_length)
         _, ids_shuffle = rand_tensor.sort(dim=1)
         ids_restore = torch.argsort(ids_shuffle, dim=1)
-        ids_shuffle_expanded = ids_shuffle.unsqueeze(-1).expand(-1, -1, hidden_dim)
+        ids_shuffle_expanded = ids_shuffle.unsqueeze(-1).expand(-1, -1, self.hidden_dim)
         future_embeddings = torch.gather(future_embeddings, dim=1, index=ids_shuffle_expanded)
 
-        num_masked_embeddings = int(seq_length * (1 - self.masking_ratio))
+        num_masked_embeddings = int(self.seq_length * (1 - self.masking_ratio))
         future_embeddings = future_embeddings[:, :num_masked_embeddings]
 
         for attn_block in self.attn_blocks:
@@ -190,20 +234,23 @@ class ActiveSiamMAEEncoder(nn.Module):
 
         return past_embeddings, future_embeddings, ids_restore
 
-    
 
 class ActiveSiamMAEDecoder(nn.Module):
-    def __init__(self, num_layers: int):
+    def __init__(self, config: ActSiamMAEConfig):
         super(ActiveSiamMAEDecoder, self).__init__()
-        self.num_layers = num_layers
-        pos_embeddings = generate_pos_embeddings(hidden_dim=hidden_dim, grid_side_length=grid_side_length)
+        self.config = config
+        self.seq_length = config.seq_length
+        self.hidden_dim = config.hidden_dim
+        pos_embeddings = generate_pos_embeddings(hidden_dim=config.hidden_dim, 
+                                                 grid_side_length=config.grid_side_length, 
+                                                 seq_length=config.seq_length)        
         self.register_buffer('pos_embeddings', pos_embeddings)
-        self.mask_token = nn.Parameter(torch.zeros(1, 1, hidden_dim))
-        self.layer_norm = nn.LayerNorm(hidden_dim)
-        self.output_layer= nn.Linear(hidden_dim, num_channels * patch_size * patch_size)
-        self.unpatchify_layer = ActiveSiamMAEDepatchifier()
+        self.mask_token = nn.Parameter(torch.zeros(1, 1, config.hidden_dim))
+        self.layer_norm = nn.LayerNorm(config.hidden_dim)
+        self.output_layer= nn.Linear(config.hidden_dim, config.num_channels * config.patch_size * config.patch_size)
+        self.unpatchify_layer = ActiveSiamMAEDepatchifier(config)
         self.attn_blocks = nn.ModuleList([
-            ActiveSiamMAEDecoderBlock() for _ in range(self.num_layers)
+            ActiveSiamMAEDecoderBlock(config) for _ in range(config.decoder_num_layers)
         ])
 
 
@@ -211,9 +258,9 @@ class ActiveSiamMAEDecoder(nn.Module):
         batch_size = future_embeddings.shape[0]
         masked_seq_length = future_embeddings.shape[1]
 
-        mask_embeddings = self.mask_token.repeat(batch_size, seq_length - masked_seq_length, 1)
+        mask_embeddings = self.mask_token.repeat(batch_size, self.seq_length - masked_seq_length, 1)
         future_embeddings = torch.concat((future_embeddings, mask_embeddings), dim=1)
-        ids_restore_expanded = ids_restore.unsqueeze(-1).expand(-1, -1, hidden_dim)
+        ids_restore_expanded = ids_restore.unsqueeze(-1).expand(-1, -1, self.hidden_dim)
         future_embeddings = torch.gather(future_embeddings, dim=1, index=ids_restore_expanded)
         future_embeddings += self.pos_embeddings
 
@@ -221,14 +268,14 @@ class ActiveSiamMAEDecoder(nn.Module):
             future_embeddings = attn_block(past_embeddings, future_embeddings)
 
         future_embeddings = self.layer_norm(future_embeddings)
-        out = self.output_layer(future_embeddings)
-        patches = self.unpatchify_layer(out)
+        patches = self.output_layer(future_embeddings)
+        img = self.unpatchify_layer(patches)
 
-        return patches
+        return img
 
 if __name__ == '__main__':
     print("Test run")
-    dataset = read_platonic_solids_dataset("../data/medium_data/")
+    dataset = read_platonic_solids_dataset("data/medium_data/")
 
     train_loader = DataLoader(
         dataset,
@@ -237,9 +284,10 @@ if __name__ == '__main__':
     )
 
     batch = next(iter(train_loader))
+    config = ActSiamMAEConfig()
 
-    encoder = ActiveSiamMAEEncoder(8)
-    decoder = ActiveSiamMAEDecoder(8)
+    encoder = ActiveSiamMAEEncoder(config)
+    decoder = ActiveSiamMAEDecoder(config)
 
     past_frame = batch['images'][:, 0, :, :, :].permute(0, 3, 1, 2).float()
     future_frame = batch['images'][:, 1, :, :, :].permute(0, 3, 1, 2).float()

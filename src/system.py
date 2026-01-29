@@ -1,40 +1,26 @@
-import torch
 import pytorch_lightning as pl
+import torch
 import torch.nn.functional as F
 
-class LitPlatonicSystem(pl.LightningModule):
-    def __init__(self, model, lr=1e-3):
+from src.model import ActSiamMAEConfig, ActiveSiamMAEEncoder, ActiveSiamMAEDecoder
+
+
+class ActiveSiamMAESystem(pl.LightningModule):
+    def __init__(self, config: ActSiamMAEConfig):
         super().__init__()
-        self.save_hyperparameters(ignore=['model']) # Auto-logs params
-        self.model = model
-        self.lr = lr
-
-    def forward(self, x):
-        return self.model(x)
-
-    def _common_step(self, batch, batch_idx):
-        # Unpack dictionary batch
-        images = batch['images'].float() # Ensure float for NN
-        actions = batch['actions']
+        self.save_hyperparameters()
+        self.config = config        
+        self.encoder = ActiveSiamMAEEncoder(config)
+        self.decoder = ActiveSiamMAEDecoder(config)
         
-        # Example logic: Predict something from images
-        preds = self(images) 
-        
-        # Dummy loss (Replace with your actual loss)
-        loss = F.mse_loss(preds, actions) 
-        return loss
+    def configure_optimizers(self) -> torch.optim.Optimizer:
+        optim = torch.optim.AdamW(self.parameters(), lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
+
+        return optim
 
     def training_step(self, batch, batch_idx):
-        loss = self._common_step(batch, batch_idx)
-        self.log('train_loss', loss, prog_bar=True)
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        loss = self._common_step(batch, batch_idx)
-        self.log('val_loss', loss, prog_bar=True)
-        return loss
-
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.lr)
-
-
+        # TODO: 
+        # 1. Get past/future frames
+        # 2. Run forward pass
+        # 3. Calculate Loss (MSE on invisible patches only)
+        pass
