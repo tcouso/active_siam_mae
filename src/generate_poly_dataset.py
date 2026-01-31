@@ -11,11 +11,11 @@ MAX_R = 6.0
 MAX_DEG_PER_STEP = 90.0
 
 SHAPE_REGISTRY = {
-    'tetrahedron': 0,
-    'cube': 1,
-    'octahedron': 2,
-    'dodecahedron': 3,
-    'icosahedron': 4
+    "tetrahedron": 0,
+    "cube": 1,
+    "octahedron": 2,
+    "dodecahedron": 3,
+    "icosahedron": 4,
 }
 SHAPE_NAMES = list(SHAPE_REGISTRY.keys())
 
@@ -23,16 +23,17 @@ SHAPE_NAMES = list(SHAPE_REGISTRY.keys())
 def get_mesh(kind: str) -> pv.PolyData:
     return pv.PlatonicSolid(kind, radius=0.4, center=(0, 0, 0))
 
+
 def closed_loop_trajectory(
     length: int, initial_state: Tuple[float, float, float]
 ) -> List[Tuple[float, float, float]]:
-    
+
     velocities = []
-    
+
     sd_0, sy_0, sx_0 = initial_state
     sd_i, sy_i, sx_i = initial_state
     vd_i, vy_i, vx_i = 0.0, 0.0, 0.0
-    
+
     if length % 2 != 0:
         length += 1
 
@@ -45,7 +46,7 @@ def closed_loop_trajectory(
             vd_i = rd.uniform(-1 - sd_i, 1 - sd_i)
             vx_i = rd.uniform(-1, 1)
             vy_i = rd.uniform(-1, 1)
-            
+
             sd_i += vd_i
             sx_i += vx_i
             sy_i += vy_i
@@ -54,15 +55,16 @@ def closed_loop_trajectory(
 
     return velocities
 
+
 def repeated_vel_closed_loop_trajectory(
     length: int, initial_state: Tuple[float, float, float]
 ) -> List[Tuple[float, float, float]]:
     velocities = []
-    
+
     sd_0, sy_0, sx_0 = initial_state
     sd_i, sy_i, sx_i = initial_state
     vd_i, vy_i, vx_i = 0.0, 0.0, 0.0
-    
+
     if length % 2 != 0:
         length += 1
 
@@ -76,7 +78,7 @@ def repeated_vel_closed_loop_trajectory(
                 vd_i = rd.uniform(-1 - sd_i, 1 - sd_i) / 2
                 vx_i = rd.uniform(-1, 1) / 2
                 vy_i = rd.uniform(-1, 1) / 2
-            
+
             sd_i += vd_i
             sx_i += vx_i
             sy_i += vy_i
@@ -85,13 +87,14 @@ def repeated_vel_closed_loop_trajectory(
 
     return velocities
 
+
 def apply_action_and_get_image(
     plotter: pv.Plotter,
     actor: pv.Actor,
     current_state: Tuple[float, float, float],
     action_vel: Tuple[float, float, float],
 ) -> Tuple[np.ndarray, Tuple[float, float, float]]:
-    
+
     d0, ry0, rx0 = current_state
     vd, vy, vx = action_vel
 
@@ -101,7 +104,7 @@ def apply_action_and_get_image(
 
     # Clamping zoom based on arm length restriction
     r = ((MAX_R + MIN_R) / 2) + (d_final * (MAX_R - MIN_R) / 2)
-    
+
     plotter.camera.position = (0, 0, r)
     plotter.camera.focal_point = (0, 0, 0)
     plotter.camera.up = (0, 1, 0)
@@ -126,26 +129,30 @@ def generate_raw_dataset(
 ):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    
+
     pl = pv.Plotter(window_size=[resolution, resolution], off_screen=True)
     pl.set_background("white")
     pl.hide_axes()
 
     total_shards = math.ceil(num_trajectories / shard_size)
-    print(f"Generating {num_trajectories} trajectories ({shape_arg}) across {total_shards} shards.")
+    print(
+        f"Generating {num_trajectories} trajectories ({shape_arg}) across {total_shards} shards."
+    )
 
     traj_global_count = 0
 
     for shard_idx in range(total_shards):
         current_shard_size = min(shard_size, num_trajectories - traj_global_count)
-        
+
         shard_images = []
         shard_actions = []
         shard_states = []
         shard_shape_ids = []
 
-        if shape_arg == 'mixed':
-            assigned_shapes = [SHAPE_NAMES[i % len(SHAPE_NAMES)] for i in range(current_shard_size)]
+        if shape_arg == "mixed":
+            assigned_shapes = [
+                SHAPE_NAMES[i % len(SHAPE_NAMES)] for i in range(current_shard_size)
+            ]
             rd.shuffle(assigned_shapes)
         else:
             assigned_shapes = [shape_arg] * current_shard_size
@@ -154,25 +161,25 @@ def generate_raw_dataset(
             traj_imgs = []
             traj_vels = []
             traj_states = []
-            
+
             current_shape_name = assigned_shapes[i]
             current_shape_id = SHAPE_REGISTRY[current_shape_name]
-            
-            pl.clear_actors() 
+
+            pl.clear_actors()
             mesh = get_mesh(current_shape_name)
-            
+
             if monochromatic:
                 actor = pl.add_mesh(mesh, color="white", show_edges=True, line_width=2)
             else:
-                if 'face_ids' not in mesh.cell_data:
-                    mesh.cell_data['face_ids'] = np.arange(mesh.n_cells)
-                
+                if "face_ids" not in mesh.cell_data:
+                    mesh.cell_data["face_ids"] = np.arange(mesh.n_cells)
+
                 actor = pl.add_mesh(
                     mesh,
                     show_edges=True,
                     line_width=2,
                     cmap="tab20",
-                    scalars='face_ids',
+                    scalars="face_ids",
                     preference="cell",
                     show_scalar_bar=False,
                 )
@@ -185,9 +192,11 @@ def generate_raw_dataset(
             img, state = apply_action_and_get_image(pl, actor, state, (0.0, 0.0, 0.0))
             traj_imgs.append(img)
             traj_states.append(state)
-            
+
             if repeated_vel:
-                velocities = repeated_vel_closed_loop_trajectory(trajectory_length, state)
+                velocities = repeated_vel_closed_loop_trajectory(
+                    trajectory_length, state
+                )
             else:
                 velocities = closed_loop_trajectory(trajectory_length, state)
 
@@ -201,19 +210,19 @@ def generate_raw_dataset(
             shard_actions.append(np.array(traj_vels, dtype=np.float32))
             shard_states.append(np.array(traj_states, dtype=np.float32))
             shard_shape_ids.append(current_shape_id)
-            
+
             traj_global_count += 1
             print(f"  [Shard {shard_idx}] {i+1}/{current_shard_size}", end="\r")
 
         save_name = f"shard{shard_idx:03d}.npz"
         save_path = os.path.join(output_dir, save_name)
-        
+
         np.savez_compressed(
             save_path,
             images=np.array(shard_images),
             actions=np.array(shard_actions),
             states=np.array(shard_states),
-            shape_ids=np.array(shard_shape_ids)
+            shape_ids=np.array(shard_shape_ids),
         )
         print(f"\n  Saved: {save_path}")
 
@@ -229,16 +238,18 @@ if __name__ == "__main__":
     parser.add_argument("--resolution", type=int, default=224)
     parser.add_argument("--output_dir", type=str, default="./data/medium_data")
     parser.add_argument("--monochromatic", action="store_true")
-    parser.add_argument("--shape", type=str, default="icosahedron", choices=SHAPE_NAMES + ['mixed'])
+    parser.add_argument(
+        "--shape", type=str, default="icosahedron", choices=SHAPE_NAMES + ["mixed"]
+    )
     parser.add_argument("--repeated_vel", type=bool, default=False)
 
     args = parser.parse_args()
 
     generate_raw_dataset(
         args.output_dir,
-        args.num_trajs, 
+        args.num_trajs,
         args.shard_size,
-        args.length, 
+        args.length,
         args.resolution,
         args.shape,
         args.monochromatic,
