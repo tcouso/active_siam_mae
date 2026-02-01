@@ -2,28 +2,29 @@ import os
 import torch
 import numpy as np
 from torch.utils.data import Dataset
-from typing import Dict, List
+from typing import Dict, List, TypedDict
 
+class PlatonicSample(TypedDict):
+    images: torch.Tensor
+    actions: torch.Tensor
+    states: torch.Tensor
 
 class PlatonicSolidsDataset(Dataset):
-    def __init__(self, data: Dict[str, List], transform=None):
+    def __init__(self, data: Dict[str, List]):
         self.images = torch.tensor(data["images"], dtype=torch.uint8)
         self.actions = torch.tensor(data["actions"], dtype=torch.float32)
         self.states = torch.tensor(data["states"], dtype=torch.float32)
-        self.transform = transform
 
     def __len__(self):
         return len(self.images)
 
-    def __getitem__(self, index) -> Dict[str, torch.Tensor]:
-        sample = {
+    def __getitem__(self, index) -> PlatonicSample:
+        sample_data = {
             "images": self.images[index],
             "actions": self.actions[index],
             "states": self.states[index],
         }
-
-        if self.transform:
-            sample = self.transform(sample)
+        sample = PlatonicSample(**sample_data)
 
         return sample
 
@@ -43,7 +44,6 @@ def read_platonic_solids_dataset(dataset_dir: str) -> PlatonicSolidsDataset:
     all_states = []
 
     for file_path in shard_files:
-        # allow_pickle=True handles both .npz and pickled dicts in .npy
         shard_data = np.load(file_path, allow_pickle=True)
 
         all_images.append(shard_data["images"])

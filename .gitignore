@@ -1,2 +1,28 @@
-data/*
-notebooks/*
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Environments
+.venv/
+env/
+venv/
+
+# Training artifacts
+checkpoints/
+lightning_logs/
+tb_logs/
+wandb/
+
+# Data & Configs (usually kept local)
+data/
+*.npy
+*.npz
+*.png
+
+# Notebooks
+notebooks/
+
+# Distribution / Build
+dist/
+build/
+*.egg-info/

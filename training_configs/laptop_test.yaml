@@ -1,0 +1,27 @@
+# Data
+data_dir: "data/medium_data"
+batch_size: 4
+train_ratio: 0.8
+num_workers: 4
+seed: 42
+
+# Model (Tiny version)
+num_channels: 3
+patch_size: 16
+grid_side_length: 14
+hidden_dim: 64
+frame_size: 224
+num_attn_heads: 4
+masking_ratio: 0.75
+encoder_num_layers: 2
+decoder_num_layers: 1
+
+# Training
+learning_rate: 1.5e-4
+weight_decay: 0.05
+max_epochs: 4
+
+# Compute
+accelerator: "cpu"
+devices: 1
+strategy: "auto"

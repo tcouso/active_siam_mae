@@ -3,38 +3,9 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from typing import Tuple
-from dataclasses import dataclass
 
+from src.config import ActSiamMAEConfig
 from src.dataset import read_platonic_solids_dataset
-
-
-@dataclass
-class ActSiamMAEConfig:
-    # Model Hyperparameters
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    num_channels: int = 3
-    patch_size: int = 16
-    grid_side_length: int = 14
-    hidden_dim: int = 512
-    img_size: int = 224
-    num_attn_heads: int = 8
-    seq_length: int = grid_side_length * grid_side_length
-    head_dimension: int = hidden_dim // num_attn_heads
-    masking_ratio: float = 0.75
-    encoder_num_layers: int = 4
-    decoder_num_layers: int = 4
-
-    # Training Hyperparameters
-    batch_size: int = 64
-    learning_rate: float = 1.5e-4
-    weight_decay: float = 0.05
-    max_epochs: int = 800
-    warmup_epochs: int = 40
-
-    # Lightning Trainer Params
-    accelerator: str = "gpu"
-    devices: int = -1
-    strategy: str = "ddp"
 
 
 def generate_pos_embeddings(
@@ -62,9 +33,9 @@ def generate_pos_embeddings(
     return pos_embeddings
 
 
-class ActiveSiamMAEPatchifier(nn.Module):
+class ActSiamMAEPatchifier(nn.Module):
     def __init__(self, config: ActSiamMAEConfig):
-        super(ActiveSiamMAEPatchifier, self).__init__()
+        super(ActSiamMAEPatchifier, self).__init__()
         self.config = config
         self.grid_side_length = config.grid_side_length
         self.num_channels = config.num_channels
@@ -79,19 +50,19 @@ class ActiveSiamMAEPatchifier(nn.Module):
 
         return frame
 
-
-class ActiveSiamMAEDepatchifier(nn.Module):
+# TODO: Verify if this correctly reconstructs from the decoder output
+class ActSiamMAEDepatchifier(nn.Module):
     def __init__(self, config: ActSiamMAEConfig):
-        super(ActiveSiamMAEDepatchifier, self).__init__()
+        super(ActSiamMAEDepatchifier, self).__init__()
         self.config = config
         self.grid_side_length = config.grid_side_length
         self.num_channels = config.num_channels
         self.patch_size = config.patch_size
         self.hidden_dim = config.hidden_dim
-        self.img_size = config.img_size
+        self.img_size = config.frame_size
+        self.seq_length = config.seq_length
 
     def forward(self, embeddings: torch.Tensor) -> torch.Tensor:
-        # print(embeddings.shape)
         patched_frame = embeddings.view(
             -1,
             self.grid_side_length,
@@ -100,17 +71,15 @@ class ActiveSiamMAEDepatchifier(nn.Module):
             self.patch_size,
             self.patch_size,
         )
-        # print(patched_frame.shape)
         patched_frame = patched_frame.permute(0, 3, 1, 4, 2, 5)
-        # print(patched_frame.shape)
         frame = patched_frame.reshape(-1, self.num_channels, self.img_size, self.img_size)
 
         return frame
 
 
-class ActiveSiamMAEMultiHeadAttention(nn.Module):
+class ActSiamMAEMultiHeadAttention(nn.Module):
     def __init__(self, config: ActSiamMAEConfig):
-        super(ActiveSiamMAEMultiHeadAttention, self).__init__()
+        super(ActSiamMAEMultiHeadAttention, self).__init__()
         self.config = config
         self.num_attn_heads = config.num_attn_heads
         self.hidden_dim = config.hidden_dim
@@ -157,13 +126,13 @@ class ActiveSiamMAEMultiHeadAttention(nn.Module):
         return attn
 
 
-class ActiveSiamMAEEncoderBlock(nn.Module):
+class ActSiamMAEEncoderBlock(nn.Module):
     def __init__(self, config: ActSiamMAEConfig):
-        super(ActiveSiamMAEEncoderBlock, self).__init__()
+        super(ActSiamMAEEncoderBlock, self).__init__()
         self.config = config
         self.layer_norm1 = nn.LayerNorm(config.hidden_dim)
         self.layer_norm2 = nn.LayerNorm(config.hidden_dim)
-        self.multi_head_attn = ActiveSiamMAEMultiHeadAttention(config)
+        self.multi_head_attn = ActSiamMAEMultiHeadAttention(config)
         self.mlp = nn.Sequential(
             nn.Linear(config.hidden_dim, 4 * config.hidden_dim),
             nn.GELU(),
@@ -180,16 +149,16 @@ class ActiveSiamMAEEncoderBlock(nn.Module):
         return mlp_embeddings
 
 
-class ActiveSiamMAEDecoderBlock(nn.Module):
+class ActSiamMAEDecoderBlock(nn.Module):
     def __init__(self, config: ActSiamMAEConfig):
-        super(ActiveSiamMAEDecoderBlock, self).__init__()
+        super(ActSiamMAEDecoderBlock, self).__init__()
         self.config = config
         self.num_attn_heads = config.num_attn_heads
         self.layer_norm1 = nn.LayerNorm(config.hidden_dim)
         self.layer_norm2 = nn.LayerNorm(config.hidden_dim)
         self.layer_norm3 = nn.LayerNorm(config.hidden_dim)
-        self.multi_head_self_attn = ActiveSiamMAEMultiHeadAttention(config)
-        self.multi_head_cross_attn = ActiveSiamMAEMultiHeadAttention(config)
+        self.multi_head_self_attn = ActSiamMAEMultiHeadAttention(config)
+        self.multi_head_cross_attn = ActSiamMAEMultiHeadAttention(config)
         self.mlp = nn.Sequential(
             nn.Linear(config.hidden_dim, 4 * config.hidden_dim),
             nn.GELU(),
@@ -211,9 +180,9 @@ class ActiveSiamMAEDecoderBlock(nn.Module):
         return mlp_embeddings
 
 
-class ActiveSiamMAEEncoder(nn.Module):
+class ActSiamMAEEncoder(nn.Module):
     def __init__(self, config: ActSiamMAEConfig):
-        super(ActiveSiamMAEEncoder, self).__init__()
+        super(ActSiamMAEEncoder, self).__init__()
         self.config = config
         self.device = config.device
         self.seq_length = config.seq_length
@@ -228,22 +197,21 @@ class ActiveSiamMAEEncoder(nn.Module):
         )
         self.register_buffer("pos_embeddings", pos_embeddings)
         self.layer_norm = nn.LayerNorm(config.hidden_dim)
-        self.patch_layer = ActiveSiamMAEPatchifier(config)
+        self.patch_layer = ActSiamMAEPatchifier(config)
         self.embed_layer = nn.Linear(in_features=config.num_channels * config.patch_size * config.patch_size, out_features=config.hidden_dim)
         self.attn_blocks = nn.ModuleList(
             [
-                ActiveSiamMAEEncoderBlock(config)
+                ActSiamMAEEncoderBlock(config)
                 for _ in range(config.encoder_num_layers)
             ]
         )
 
     def forward(
         self, past_frame: torch.Tensor, future_frame: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
         # Past frame is given complete
         past_frame = self.patch_layer(past_frame)
-        # past_frame = past_frame.permute(0, 1, 3, 4, 2).reshape(-1, self.seq_length, self.num_channels * self.patch_size * self.patch_size)
         past_embeddings = self.embed_layer(past_frame)
         past_embeddings += self.pos_embeddings
 
@@ -254,11 +222,12 @@ class ActiveSiamMAEEncoder(nn.Module):
 
         # Future frame is masked
         future_frame = self.patch_layer(future_frame)
-        # future_frame = future_frame.permute(0, 1, 3, 4, 2).reshape(-1, self.seq_length, self.num_channels * self.patch_size * self.patch_size)
         future_embeddings = self.embed_layer(future_frame)
         future_embeddings += self.pos_embeddings
 
         batch_size = past_frame.shape[0]
+        num_keep = int(self.seq_length * (1 - self.masking_ratio))
+
         rand_tensor = torch.rand(batch_size, self.seq_length, device=self.device)
         _, ids_shuffle = rand_tensor.sort(dim=1)
         ids_restore = torch.argsort(ids_shuffle, dim=1)
@@ -266,21 +235,24 @@ class ActiveSiamMAEEncoder(nn.Module):
         future_embeddings = torch.gather(
             future_embeddings, dim=1, index=ids_shuffle_expanded
         )
+        future_embeddings = future_embeddings[:, :num_keep]
 
-        num_masked_embeddings = int(self.seq_length * (1 - self.masking_ratio))
-        future_embeddings = future_embeddings[:, :num_masked_embeddings]
+        ids_keep = ids_shuffle[:, :num_keep]
+        mask = torch.ones(batch_size, self.seq_length, device=self.device)
+        mask.scatter_(1, ids_keep, 0)
+
 
         for attn_block in self.attn_blocks:
             future_embeddings = attn_block(future_embeddings)
 
         future_embeddings = self.layer_norm(future_embeddings)
 
-        return past_embeddings, future_embeddings, ids_restore
+        return past_embeddings, future_embeddings, mask, ids_restore
 
 
-class ActiveSiamMAEDecoder(nn.Module):
+class ActSiamMAEDecoder(nn.Module):
     def __init__(self, config: ActSiamMAEConfig):
-        super(ActiveSiamMAEDecoder, self).__init__()
+        super(ActSiamMAEDecoder, self).__init__()
         self.config = config
         self.seq_length = config.seq_length
         self.hidden_dim = config.hidden_dim
@@ -296,10 +268,9 @@ class ActiveSiamMAEDecoder(nn.Module):
             config.hidden_dim,
             config.num_channels * config.patch_size * config.patch_size,
         )
-        self.unpatchify_layer = ActiveSiamMAEDepatchifier(config)
         self.attn_blocks = nn.ModuleList(
             [
-                ActiveSiamMAEDecoderBlock(config)
+                ActSiamMAEDecoderBlock(config)
                 for _ in range(config.decoder_num_layers)
             ]
         )
@@ -328,9 +299,8 @@ class ActiveSiamMAEDecoder(nn.Module):
 
         future_embeddings = self.layer_norm(future_embeddings)
         patches = self.output_layer(future_embeddings)
-        img = self.unpatchify_layer(patches)
 
-        return img
+        return patches
 
 
 if __name__ == "__main__":
@@ -346,13 +316,13 @@ if __name__ == "__main__":
     batch = next(iter(train_loader))
     config = ActSiamMAEConfig()
 
-    encoder = ActiveSiamMAEEncoder(config)
-    decoder = ActiveSiamMAEDecoder(config)
+    encoder = ActSiamMAEEncoder(config)
+    decoder = ActSiamMAEDecoder(config)
 
     past_frame = batch["images"][:, 0, :, :, :].permute(0, 3, 1, 2).float()
     future_frame = batch["images"][:, 1, :, :, :].permute(0, 3, 1, 2).float()
 
-    past_embeddings, future_embeddings, ids_restore = encoder(past_frame, future_frame)
+    past_embeddings, future_embeddings, mask, ids_restore = encoder(past_frame, future_frame)
     patches = decoder(past_embeddings, future_embeddings, ids_restore)
 
     print(patches.shape)
