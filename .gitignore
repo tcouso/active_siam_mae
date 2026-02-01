@@ -14,7 +14,7 @@ tb_logs/
 wandb/
 
 # Data & Configs (usually kept local)
-data/*
+data/
 
 
 # Notebooks
