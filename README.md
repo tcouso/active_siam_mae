@@ -10,13 +10,6 @@ Clone the repository and install the project in editable mode:
 pip install -e .
 ```
 
-## Project Structure
-
-- `src/`: Core logic (Model, DataModule, Lightning System)
-- `training_configs/`: YAML files for experiment hyperparameters
-- `data/`: Directory for .npz or .npy dataset shards
-- `checkpoints/`: Model weights and training snapshots
-
 ## Data Generation
 
 Generate synthetic datasets of 3D Platonic solids with controlled camera trajectories:
