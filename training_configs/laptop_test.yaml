@@ -1,5 +1,5 @@
 # Data
-data_dir: "data/medium_data"
+data_dir: "data/easy"
 batch_size: 4
 train_ratio: 0.8
 num_workers: 4
