@@ -14,10 +14,8 @@ tb_logs/
 wandb/
 
 # Data & Configs (usually kept local)
-data/
-*.npy
-*.npz
-*.png
+data/*
+
 
 # Notebooks
 notebooks/
