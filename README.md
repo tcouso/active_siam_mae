@@ -1,4 +1,4 @@
-# Active SiamMAE
+# ActSiamMAE
 
 Unsupervised Active Visual Exploration using SiamMAE and Generalized Velocity.
 
