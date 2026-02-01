@@ -20,7 +20,7 @@ python generate_poly_dataset.py \
   --shard_size 50 \
   --length 20 \
   --resolution 224 \
-  --output_dir ./data/medium_data \
+  --output_dir ./data/medium \
   --shape icosahedron
 ```
 
