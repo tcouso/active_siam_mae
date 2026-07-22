@@ -15,11 +15,13 @@ This project started with a broader goal (active visual exploration), but that d
 
 ## Installation
 
-Clone the repository and install the project in editable mode:
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management. Clone the repository and sync the environment:
 
 ```bash
-pip install -e .
+uv sync
 ```
+
+This creates a `.venv` and installs the locked dependencies from `uv.lock`. Prefix commands with `uv run` (e.g. `uv run python src/train.py ...`) to run them inside that environment without activating it manually.
 
 ## Data Generation
 
@@ -28,7 +30,7 @@ Data generation is a two-step pipeline: render raw trajectories, then pack them 
 **1. Render raw trajectories** of 3D Platonic solids under controlled camera motion:
 
 ```bash
-python src/generate_poly_dataset.py \
+uv run python src/generate_poly_dataset.py \
   --num_trajs 100 \
   --length 20 \
   --resolution 224 \
@@ -47,7 +49,7 @@ Other options:
 **2. Pack into WebDataset shards:**
 
 ```bash
-python src/build_wds.py \
+uv run python src/build_wds.py \
   --raw_dir ./data/raw/train \
   --output_prefix ./data/wds/train/platonic \
   --max_count 125
@@ -58,13 +60,13 @@ python src/build_wds.py \
 Point at a config file:
 
 ```bash
-python src/train.py --config training_configs/laptop_test.yaml
+uv run python src/train.py --config training_configs/laptop_test.yaml
 ```
 
 Model architecture, masking schedule, optimizer, and data paths are all set via YAML, parsed into a `SiamMAEConfig` dataclass (`src/config.py`). To resume a run:
 
 ```bash
-python src/train.py --config training_configs/laptop_test.yaml --ckpt_path path/to/checkpoint.ckpt --resume_id <wandb_run_id>
+uv run python src/train.py --config training_configs/laptop_test.yaml --ckpt_path path/to/checkpoint.ckpt --resume_id <wandb_run_id>
 ```
 
 ## Monitoring
@@ -72,7 +74,7 @@ python src/train.py --config training_configs/laptop_test.yaml --ckpt_path path/
 Metrics and sample reconstructions (past / future / masked / reconstructed grids) are logged to Weights & Biases. To authenticate a new environment:
 
 ```bash
-wandb login
+uv run wandb login
 ```
 
 ## Code layout
@@ -87,6 +89,7 @@ wandb login
 ## Stack
 
 - **Core**: PyTorch / PyTorch Lightning
+- **Dependency management**: [uv](https://docs.astral.sh/uv/)
 - **Tracking**: Weights & Biases (WandB)
 - **Config**: YAML / Python Dataclasses
 - **Data Generation**: PyVista, NumPy

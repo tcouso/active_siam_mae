@@ -159,7 +159,6 @@ class SiamMAEEncoderBlock(nn.Module):
         return mlp_embeddings
 
 
-# TODO: We are lacking a [CLS] token. This is important for linear probing of the model
 class SiamMAEEncoder(nn.Module):
     def __init__(self, config: SiamMAEConfig):
         super(SiamMAEEncoder, self).__init__()
