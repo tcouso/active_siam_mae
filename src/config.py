@@ -3,7 +3,7 @@ import yaml
 from dataclasses import dataclass, fields
 
 @dataclass
-class ActSiamMAEConfig:
+class SiamMAEConfig:
     seed: int = 42
     train_urls: str = "data/wds_sample_trajectories/train/platonic-{0000..0003}.tar"
     val_urls: str = "data/wds_sample_trajectories/val/platonic-0000.tar"

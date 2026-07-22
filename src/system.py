@@ -5,15 +5,15 @@ from typing import Tuple
 from pytorch_lightning.utilities.types import OptimizerLRScheduler
 
 from src.model import (
-    ActSiamMAEConfig,
-    ActSiamMAEEncoder,
-    ActSiamMAEDecoder,
-    ActSiamMAEDepatchifier,
+    SiamMAEConfig,
+    SiamMAEEncoder,
+    SiamMAEDecoder,
+    SiamMAEDepatchifier,
 )
 
 
-class ActSiamMAESystem(pl.LightningModule):
-    def __init__(self, config: ActSiamMAEConfig):
+class SiamMAESystem(pl.LightningModule):
+    def __init__(self, config: SiamMAEConfig):
         super().__init__()
         self.save_hyperparameters("config")
         
@@ -31,9 +31,9 @@ class ActSiamMAESystem(pl.LightningModule):
         self.target_masking_ratio = config.target_masking_ratio
         self.masking_schedule_epochs = config.masking_schedule_epochs
 
-        self.encoder = ActSiamMAEEncoder(config)
-        self.decoder = ActSiamMAEDecoder(config)
-        self.depatchifier = ActSiamMAEDepatchifier(config)
+        self.encoder = SiamMAEEncoder(config)
+        self.decoder = SiamMAEDecoder(config)
+        self.depatchifier = SiamMAEDepatchifier(config)
 
     def _get_current_masking_ratio(self) -> float:
         if self.current_epoch < self.masking_schedule_epochs:

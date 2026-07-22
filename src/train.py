@@ -3,19 +3,19 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
-from src.config import ActSiamMAEConfig
+from src.config import SiamMAEConfig
 from src.datamodule import PlatonicDataModule
-from src.system import ActSiamMAESystem
+from src.system import SiamMAESystem
 from src.callbacks import WandbReconstructionCallback
 
 
 def main(args):
-    config = ActSiamMAEConfig.from_yaml(args.config)
+    config = SiamMAEConfig.from_yaml(args.config)
     pl.seed_everything(config.seed, workers=True)
 
-    run_name = f"ActSiamMAE_mask{config.start_masking_ratio}_to_{config.target_masking_ratio}_bs{config.batch_size}_lr{config.base_learning_rate}"
+    run_name = f"SiamMAE_mask{config.start_masking_ratio}_to_{config.target_masking_ratio}_bs{config.batch_size}_lr{config.base_learning_rate}"
 
-    wandb_kwargs = {"project": "ActiveSiamMAE", "name": run_name, "log_model": "all"}
+    wandb_kwargs = {"project": "learning-siam-mae", "name": run_name, "log_model": "all"}
 
     if args.resume_id:
         wandb_kwargs["id"] = args.resume_id
@@ -45,7 +45,7 @@ def main(args):
         log_every_n_steps=config.log_every_n_steps,
         logger=wandb_logger,
     )
-    system = ActSiamMAESystem(config)
+    system = SiamMAESystem(config)
     trainer.fit(system, datamodule=data_module, ckpt_path=args.ckpt_path)
 
 

@@ -1,6 +1,6 @@
 # Data & I/O
-train_urls: "/workspace1/tcouso/active_siam_mae/data/wds_mixed_shapes_color_100k/train/platonic-{0001..0004}.tar"
-val_urls: "/workspace1/tcouso/active_siam_mae/data/wds_mixed_shapes_color_100k/train/platonic-0001.tar"
+train_urls: "/workspace1/tcouso/learning-siam-mae/data/wds_mixed_shapes_color_100k/train/platonic-{0001..0004}.tar"
+val_urls: "/workspace1/tcouso/learning-siam-mae/data/wds_mixed_shapes_color_100k/train/platonic-0001.tar"
 batch_size: 40
 num_workers: 16
 

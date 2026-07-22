@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from typing import Tuple
 
-from src.config import ActSiamMAEConfig
+from src.config import SiamMAEConfig
 
 
 def generate_pos_embeddings(
@@ -31,9 +31,9 @@ def generate_pos_embeddings(
     return pos_embeddings
 
 
-class ActSiamMAEPatchifier(nn.Module):
-    def __init__(self, config: ActSiamMAEConfig):
-        super(ActSiamMAEPatchifier, self).__init__()
+class SiamMAEPatchifier(nn.Module):
+    def __init__(self, config: SiamMAEConfig):
+        super(SiamMAEPatchifier, self).__init__()
         self.config = config
         self.grid_side_length = config.grid_side_length
         self.num_channels = config.num_channels
@@ -58,9 +58,9 @@ class ActSiamMAEPatchifier(nn.Module):
         return frame
 
 
-class ActSiamMAEDepatchifier(nn.Module):
-    def __init__(self, config: ActSiamMAEConfig):
-        super(ActSiamMAEDepatchifier, self).__init__()
+class SiamMAEDepatchifier(nn.Module):
+    def __init__(self, config: SiamMAEConfig):
+        super(SiamMAEDepatchifier, self).__init__()
         self.config = config
         self.grid_side_length = config.grid_side_length
         self.num_channels = config.num_channels
@@ -86,9 +86,9 @@ class ActSiamMAEDepatchifier(nn.Module):
         return frame
 
 
-class ActSiamMAEMultiHeadAttention(nn.Module):
-    def __init__(self, config: ActSiamMAEConfig):
-        super(ActSiamMAEMultiHeadAttention, self).__init__()
+class SiamMAEMultiHeadAttention(nn.Module):
+    def __init__(self, config: SiamMAEConfig):
+        super(SiamMAEMultiHeadAttention, self).__init__()
         self.config = config
         self.num_attn_heads = config.num_attn_heads
         self.hidden_dim = config.hidden_dim
@@ -135,13 +135,13 @@ class ActSiamMAEMultiHeadAttention(nn.Module):
         return attn
 
 
-class ActSiamMAEEncoderBlock(nn.Module):
-    def __init__(self, config: ActSiamMAEConfig):
-        super(ActSiamMAEEncoderBlock, self).__init__()
+class SiamMAEEncoderBlock(nn.Module):
+    def __init__(self, config: SiamMAEConfig):
+        super(SiamMAEEncoderBlock, self).__init__()
         self.config = config
         self.layer_norm1 = nn.LayerNorm(config.hidden_dim)
         self.layer_norm2 = nn.LayerNorm(config.hidden_dim)
-        self.multi_head_attn = ActSiamMAEMultiHeadAttention(config)
+        self.multi_head_attn = SiamMAEMultiHeadAttention(config)
         self.mlp = nn.Sequential(
             nn.Linear(config.hidden_dim, 4 * config.hidden_dim),
             nn.GELU(),
@@ -160,9 +160,9 @@ class ActSiamMAEEncoderBlock(nn.Module):
 
 
 # TODO: We are lacking a [CLS] token. This is important for linear probing of the model
-class ActSiamMAEEncoder(nn.Module):
-    def __init__(self, config: ActSiamMAEConfig):
-        super(ActSiamMAEEncoder, self).__init__()
+class SiamMAEEncoder(nn.Module):
+    def __init__(self, config: SiamMAEConfig):
+        super(SiamMAEEncoder, self).__init__()
         self.config = config
         self.device = config.device
         self.seq_length = config.seq_length
@@ -183,13 +183,13 @@ class ActSiamMAEEncoder(nn.Module):
         self.register_buffer("pos_embeddings", full_pos_embedding)
 
         self.layer_norm = nn.LayerNorm(config.hidden_dim)
-        self.patch_layer = ActSiamMAEPatchifier(config)
+        self.patch_layer = SiamMAEPatchifier(config)
         self.embed_layer = nn.Linear(
             in_features=config.num_channels * config.patch_size * config.patch_size,
             out_features=config.hidden_dim,
         )
         self.attn_blocks = nn.ModuleList(
-            [ActSiamMAEEncoderBlock(config) for _ in range(config.encoder_num_layers)]
+            [SiamMAEEncoderBlock(config) for _ in range(config.encoder_num_layers)]
         )
 
     def forward(
@@ -254,16 +254,16 @@ class ActSiamMAEEncoder(nn.Module):
         return past_embeddings_without_cls, future_embeddings_without_cls, past_cls, future_cls, mask, ids_restore
 
 
-class ActSiamMAEDecoderBlock(nn.Module):
-    def __init__(self, config: ActSiamMAEConfig):
-        super(ActSiamMAEDecoderBlock, self).__init__()
+class SiamMAEDecoderBlock(nn.Module):
+    def __init__(self, config: SiamMAEConfig):
+        super(SiamMAEDecoderBlock, self).__init__()
         self.config = config
         self.num_attn_heads = config.num_attn_heads
         self.layer_norm1 = nn.LayerNorm(config.hidden_dim)
         self.layer_norm2 = nn.LayerNorm(config.hidden_dim)
         self.layer_norm3 = nn.LayerNorm(config.hidden_dim)
-        self.multi_head_self_attn = ActSiamMAEMultiHeadAttention(config)
-        self.multi_head_cross_attn = ActSiamMAEMultiHeadAttention(config)
+        self.multi_head_self_attn = SiamMAEMultiHeadAttention(config)
+        self.multi_head_cross_attn = SiamMAEMultiHeadAttention(config)
         self.mlp = nn.Sequential(
             nn.Linear(config.hidden_dim, 4 * config.hidden_dim),
             nn.GELU(),
@@ -290,9 +290,9 @@ class ActSiamMAEDecoderBlock(nn.Module):
         return mlp_embeddings
 
 
-class ActSiamMAEDecoder(nn.Module):
-    def __init__(self, config: ActSiamMAEConfig):
-        super(ActSiamMAEDecoder, self).__init__()
+class SiamMAEDecoder(nn.Module):
+    def __init__(self, config: SiamMAEConfig):
+        super(SiamMAEDecoder, self).__init__()
         self.config = config
         self.seq_length = config.seq_length
         self.hidden_dim = config.hidden_dim
@@ -309,7 +309,7 @@ class ActSiamMAEDecoder(nn.Module):
             config.num_channels * config.patch_size * config.patch_size,
         )
         self.attn_blocks = nn.ModuleList(
-            [ActSiamMAEDecoderBlock(config) for _ in range(config.decoder_num_layers)]
+            [SiamMAEDecoderBlock(config) for _ in range(config.decoder_num_layers)]
         )
 
     def forward(
