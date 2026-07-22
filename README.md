@@ -4,8 +4,6 @@ A from-scratch PyTorch re-implementation of [**SiamMAE**](https://arxiv.org/abs/
 
 This project started with a broader goal (active visual exploration), but that direction was dropped early on. What's left, and what this repo now documents, is a working SiamMAE: an encoder-decoder model that takes a **past frame** (fully visible) and a **future frame** (heavily masked), and learns to reconstruct the masked future patches by cross-attending to the past frame's representation. Trained on synthetic camera trajectories around rotating 3D solids, it correctly reconstructs future frames from motion context.
 
-Follow-on work building on these ideas continues in a separate project, [Skill-JEPA](https://github.com/tcouso/Skill-JEPA).
-
 ## What's implemented
 
 - Vision Transformer encoder/decoder built from scratch (patchify, multi-head attention, sinusoidal 2D positional embeddings) — no `timm` or HuggingFace model code.
